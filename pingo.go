@@ -51,7 +51,7 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		for _ = range c {
-			loss := float32(fail) / float32(total)
+			loss := float64(fail) / float64(total)
 			min, max, mean, stddev := tripStats(times)
 
 			fmt.Printf("\n--- %s ping statistics ---\n", straddr)
@@ -63,15 +63,16 @@ func main() {
 		}
 	}()
 
+	// Main packet send/response loop
 	for {
 		seq++
 		p := makePacket(id, seq, pktlen, []byte("Hello, world!"))
-		checkErr(err)
 
 		n, err := conn.Write(p)
 		sent := time.Now()
 		if err != nil || n != len(p) {
-			fmt.Printf("Packet send failure seq= %v\n", seq)
+			fmt.Printf("packet send failure seq=%v\n", seq)
+			time.Sleep(1e9)
 			continue
 		}
 		total++
@@ -79,25 +80,23 @@ func main() {
 		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 
 		resp := make([]byte, 1024)
-		for {
-			rlen, _, err := conn.ReadFrom(resp)
-			if err != nil {
-				fmt.Printf("icmp timeout seq=%v\n", seq)
-				fail++
-				break
-			}
-
-			if resp[0] == ICMP_ECHO_REPLY {
-				since := float64(time.Since(sent).Nanoseconds()) / 1000000
-				success++
-				times = append(times, since)
-				fmt.Printf("%v bytes from %s: seq=%v time=%0.3f ms\n",
-					rlen, conn.RemoteAddr(), seq, since)
-				break
-			}
+		rlen, _, err := conn.ReadFrom(resp)
+		if err != nil {
+			fmt.Printf("packet read timeout seq=%v\n", seq)
+			fail++
+			time.Sleep(1e9)
+			continue
 		}
 
-		time.Sleep(1e9)
+		if resp[0] == ICMP_ECHO_REPLY {
+			since := float64(time.Since(sent).Nanoseconds()) / 1000000
+			success++
+			times = append(times, since)
+			fmt.Printf("%v bytes from %s: seq=%v time=%0.3f ms\n",
+				rlen, conn.RemoteAddr(), seq, since)
+			time.Sleep(1e9)
+		}
+
 	}
 }
 
@@ -150,15 +149,18 @@ func tripStats(times []float64) (float64, float64, float64, float64) {
 	tlen := len(times)
 	sort.Float64s(times)
 
+	// Min and max are easy once sorted
 	min := times[0]
 	max := times[tlen-1]
 
+	// Average
 	mean := float64(0)
 	for _, f := range times {
 		mean += f
 	}
 	mean /= float64(tlen)
 
+	// Standard Deviation
 	sigma := float64(0)
 	for _, f := range times {
 		sigma += math.Pow((f - mean), 2)
@@ -166,26 +168,4 @@ func tripStats(times []float64) (float64, float64, float64, float64) {
 	sigma /= float64(tlen)
 
 	return min, max, mean, sigma
-}
-
-func average(floats []float64) float64 {
-	avg := float64(0)
-	for _, f := range floats {
-		avg += f
-	}
-
-	avg /= float64(len(floats))
-	return avg
-}
-
-func sigma(floats []float64) float64 {
-	mean := average(floats)
-	sigma := float64(0)
-
-	for _, f := range floats {
-		sigma += math.Pow((f - mean), 2)
-	}
-
-	sigma /= float64(len(floats))
-	return sigma
 }
