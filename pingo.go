@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"time"
 )
 
@@ -41,7 +43,7 @@ func main() {
 	total := 0
 	success := 0
 	fail := 0
-	times := make([]float32, 0)
+	times := make([]float64, 0)
 
 	// Capture the exit signal and print statistics for the session
 	// when we receive SIGTERM
@@ -50,9 +52,13 @@ func main() {
 	go func() {
 		for _ = range c {
 			loss := float32(fail) / float32(total)
+			min, max, mean, stddev := tripStats(times)
+
 			fmt.Printf("\n--- %s ping statistics ---\n", straddr)
 			fmt.Printf("%v packets sent, %v packets received - %0.2f%% packet loss\n",
 				total, success, loss)
+			fmt.Printf("roundtrip min/max/mean/stddev: %0.2f/%0.2f/%0.2f/%0.2f ms\n",
+				min, max, mean, stddev)
 			os.Exit(0)
 		}
 	}()
@@ -76,16 +82,17 @@ func main() {
 		for {
 			rlen, _, err := conn.ReadFrom(resp)
 			if err != nil {
-				printFailure(seq)
+				fmt.Printf("icmp timeout seq=%v\n", seq)
 				fail++
 				break
 			}
 
 			if resp[0] == ICMP_ECHO_REPLY {
-				since := float32(time.Since(sent).Nanoseconds()) / 1000000
+				since := float64(time.Since(sent).Nanoseconds()) / 1000000
 				success++
 				times = append(times, since)
-				printSuccess(rlen, seq, conn, since)
+				fmt.Printf("%v bytes from %s: seq=%v time=%0.3f ms\n",
+					rlen, conn.RemoteAddr(), seq, since)
 				break
 			}
 		}
@@ -139,11 +146,46 @@ func checksum(p []byte) uint16 {
 	return uint16(^s)
 }
 
-func printSuccess(rlen, seq int, conn *net.IPConn, since float32) {
-	fmt.Printf("%v bytes from %s: seq=%v time=%0.3f ms\n",
-		rlen, conn.RemoteAddr(), seq, since)
+func tripStats(times []float64) (float64, float64, float64, float64) {
+	tlen := len(times)
+	sort.Float64s(times)
+
+	min := times[0]
+	max := times[tlen-1]
+
+	mean := float64(0)
+	for _, f := range times {
+		mean += f
+	}
+	mean /= float64(tlen)
+
+	sigma := float64(0)
+	for _, f := range times {
+		sigma += math.Pow((f - mean), 2)
+	}
+	sigma /= float64(tlen)
+
+	return min, max, mean, sigma
 }
 
-func printFailure(seq int) {
-	fmt.Printf("icmp timeout seq=%v\n", seq)
+func average(floats []float64) float64 {
+	avg := float64(0)
+	for _, f := range floats {
+		avg += f
+	}
+
+	avg /= float64(len(floats))
+	return avg
+}
+
+func sigma(floats []float64) float64 {
+	mean := average(floats)
+	sigma := float64(0)
+
+	for _, f := range floats {
+		sigma += math.Pow((f - mean), 2)
+	}
+
+	sigma /= float64(len(floats))
+	return sigma
 }
