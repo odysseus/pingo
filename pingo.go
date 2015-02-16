@@ -44,6 +44,7 @@ func main() {
 	success := 0
 	fail := 0
 	times := make([]float64, 0)
+	failure := false
 
 	// Capture the exit signal and print statistics for the session
 	// when we receive SIGTERM
@@ -51,15 +52,19 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		for _ = range c {
-			loss := float64(fail) / float64(total)
-			min, max, mean, stddev := tripStats(times)
+			if !failure {
+				loss := float64(fail) / float64(total)
+				min, max, mean, stddev := tripStats(times)
 
-			fmt.Printf("\n--- %s ping statistics ---\n", straddr)
-			fmt.Printf("%v packets sent, %v packets received - %0.2f%% packet loss\n",
-				total, success, loss)
-			fmt.Printf("roundtrip min/max/mean/stddev: %0.2f/%0.2f/%0.2f/%0.2f ms\n",
-				min, max, mean, stddev)
-			os.Exit(0)
+				fmt.Printf("\n--- %s ping statistics ---\n", straddr)
+				fmt.Printf("%v packets sent, %v packets received - %0.2f%% packet loss\n",
+					total, success, loss)
+				fmt.Printf("roundtrip min/max/mean/stddev: %0.2f/%0.2f/%0.2f/%0.2f ms\n",
+					min, max, mean, stddev)
+				os.Exit(0)
+			} else {
+				os.Exit(1)
+			}
 		}
 	}()
 
@@ -81,6 +86,7 @@ func main() {
 
 		resp := make([]byte, 1024)
 		rlen, _, err := conn.ReadFrom(resp)
+		since := float64(time.Since(sent).Nanoseconds()) / 1000000
 		if err != nil {
 			fmt.Printf("packet read timeout seq=%v\n", seq)
 			fail++
@@ -89,14 +95,17 @@ func main() {
 		}
 
 		if resp[0] == ICMP_ECHO_REPLY {
-			since := float64(time.Since(sent).Nanoseconds()) / 1000000
 			success++
 			times = append(times, since)
 			fmt.Printf("%v bytes from %s: seq=%v time=%0.3f ms\n",
 				rlen, conn.RemoteAddr(), seq, since)
-			time.Sleep(1e9)
+		} else {
+			fmt.Printf("unexpected response code seq=%v. Expected 0, got %v - Header: %v\n",
+				seq, resp[0], resp[0:7])
+			failure = true
 		}
 
+		time.Sleep(1e9)
 	}
 }
 
@@ -166,6 +175,7 @@ func tripStats(times []float64) (float64, float64, float64, float64) {
 		sigma += math.Pow((f - mean), 2)
 	}
 	sigma /= float64(tlen)
+	sigma = math.Sqrt(sigma)
 
 	return min, max, mean, sigma
 }
