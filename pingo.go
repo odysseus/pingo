@@ -29,6 +29,7 @@ func main() {
 		log.Fatal("Address resolution error, double check address argument")
 	}
 
+	// Dial - For ICMP connections must run as root
 	conn, err := net.DialIP("ip4:icmp", nil, raddr)
 	if err != nil {
 		log.Fatal("icmp dial error, icmp dialing requires root priveleges")
@@ -43,7 +44,7 @@ func main() {
 	fmt.Printf("PING request to %s (%s) - %v data bytes\n",
 		straddr, raddr, pktlen-8)
 
-	// Track success, failure, and a list of the times
+	// Track success, failure, and a slice containing the ms roundtrip times
 	total := 0
 	success := 0
 	fail := 0
@@ -63,7 +64,7 @@ func main() {
 				fmt.Printf("\n--- %s ping statistics ---\n", straddr)
 				fmt.Printf("%v packets sent, %v packets received - %0.2f%% packet loss\n",
 					total, success, loss)
-				fmt.Printf("roundtrip min/max/mean/stddev: %0.2f/%0.2f/%0.2f/%0.2f ms\n",
+				fmt.Printf("roundtrip min/max/mean/stddev: %0.4f/%0.4f/%0.4f/%0.4f ms\n",
 					min, max, mean, stddev)
 				os.Exit(0)
 			} else {
@@ -77,8 +78,8 @@ func main() {
 		seq++
 		p := makePacket(id, seq, pktlen, []byte("Hello, world!"))
 
-		n, err := conn.Write(p)
 		sent := time.Now()
+		n, err := conn.Write(p)
 		if err != nil || n != len(p) {
 			fmt.Printf("packet send failure seq=%v\n", seq)
 			time.Sleep(1e9)
@@ -101,7 +102,7 @@ func main() {
 		if resp[0] == ICMP_ECHO_REPLY {
 			success++
 			times = append(times, since)
-			fmt.Printf("%v bytes from %s: seq=%v time=%0.3f ms\n",
+			fmt.Printf("%v bytes from %s: seq=%v time=%0.4f ms\n",
 				rlen, conn.RemoteAddr(), seq, since)
 		} else {
 			fmt.Printf("unexpected response code seq=%v. Expected 0, got %v - Header: %v\n",
