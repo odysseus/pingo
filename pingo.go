@@ -25,10 +25,14 @@ func main() {
 
 	// Make the remote connection
 	raddr, err := net.ResolveIPAddr("ip4:icmp", straddr)
-	checkErr(err)
+	if err != nil {
+		log.Fatal("Address resolution error, double check address argument")
+	}
 
 	conn, err := net.DialIP("ip4:icmp", nil, raddr)
-	checkErr(err)
+	if err != nil {
+		log.Fatal("icmp dial error, icmp dialing requires root priveleges")
+	}
 
 	// Data to use in the packet header
 	id := os.Getpid() & 0xffff
@@ -109,17 +113,11 @@ func main() {
 	}
 }
 
-func checkErr(err error) {
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-}
-
 func makePacket(id, seq, pktlen int, filler []byte) []byte {
 	p := make([]byte, pktlen)
 
 	// Add the payload
-	copy(p[8:], bytes.Repeat(filler, (pktlen-8)/len(filler)+1))
+	copy(p[8:], bytes.Repeat(filler, (pktlen-8)/len(filler)))
 
 	// Set up the packet
 	p[0] = ICMP_ECHO_REQUEST // Type
