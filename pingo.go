@@ -138,6 +138,7 @@ func makePacket(id, seq, pktlen int, filler []byte) []byte {
 	return p
 }
 
+// https://tools.ietf.org/html/rfc1071
 func checksum(p []byte) uint16 {
 	cklen := len(p)
 	s := uint32(0)
